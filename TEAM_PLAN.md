@@ -66,11 +66,15 @@ Repo: https://github.com/jingwenzz/kv-cache-attention
 
 Stack is just Python + PyTorch + matplotlib. Small models are fine, we care about cache behavior, not model quality.
 
+> [Update from execution plan (see below), tension with the original brief] The brief's quality check asks whether the model can still retrieve information from deep in the context. That needs a model whose FP16 baseline already retrieves reliably, so "small models are fine" holds for the cache-size experiments but not for the needle experiment.
+
 - `src/cache_size.py`: compute cache size from the formula, then check it against actual memory usage during inference. If the two disagree, be able to explain why (padding, allocator overhead, that kind of thing).
 - `src/plot_curves.py`: plot cache GB vs seq len from 1K to 32K, MHA and GQA on the same figure, plus an FP16 vs FP8 comparison.
+  - [Update from execution plan (see below), conflict with the original brief] The brief says "compare a model with standard MHA against one with GQA", so this needs two real models (one MHA, one GQA), not one model with a hypothetical kv_heads. Also, the 1K to 32K range is not in the brief; it only asks for cache size vs sequence length.
 - `src/needle.py`: a needle in a haystack test harness. Insert the needle at different depths (0 to 100 percent) and different context lengths, measure retrieval success rate, output a heatmap.
 - `src/fp8_cache.py`: in the generation loop, quantize and dequantize K/V in FP8 (e4m3), run the same needle test as the FP16 cache, and compare where the success rate starts to drop by length and depth.
 - If we have spare time, add one eviction baseline (attention sink plus a recent window) to test the effective context window argument.
+  - [Update from execution plan (see below), tension with the original brief] The brief's Critical Analysis asks at what point compression makes the model forget the beginning of the prompt. That is exactly what eviction does, so this baseline is the only experiment that tests it directly. Consider making it required instead of optional.
 - `results/` holds the plots, `notes/` holds the per paper reading notes.
 
 ## What the paper needs
@@ -80,6 +84,7 @@ ACL template, double column, main text max 6 pages, references do not count. Fiv
 - Abstract: one sentence for the problem, one for the approach, one for the conclusion.
 - Introduction: why on-device inference gets bottlenecked by the cache, bring in the formula.
 - Taxonomy: the five papers in three families, architectural simplification (MQA, GQA), cache compression (quantization, PagedAttention), sparse access (StreamingLLM, H2O), with a comparison table.
+  - [Open conflict inside this file, needs a decision] This mapping differs from the "How we classify" section above (there PagedAttention is the orthogonal system layer, StreamingLLM and H2O are compression, and sparse access has no core paper). The brief lists the methods but gives no mapping, so both are interpretations. One of the two needs to be chosen.
 - Critical analysis: the effective context window argument, why eviction and quantization degrade in fundamentally different ways.
 - Experiments: the three experiments, figures first, text explains the figures. The curves show cache growth matches the formula, the heatmap shows FP8 degradation is gradual and where it starts.
 - Conclusion: restate the main line in one takeaway.
@@ -108,3 +113,31 @@ A rough allocation of the 6 main-text pages. Every number here can move once the
 - Experiment 3 (needle + FP8) plus the slides: one person
 
 Whoever has a GPU starts the experiments first. We all read the full paper draft before submitting.
+
+## Concrete experiment plan (added, draft, based on the original brief)
+
+Anchor: the brief asks for three experimental things. (1) Simulation: stress-test the KV cache and compare a model with MHA against one with GQA. (2) Quantification: KV cache size (GB) vs sequence length. (3) Quality check: needle in a haystack with a compressed or quantized KV cache (FP8 is only an example). It gives no sequence lengths and no model names.
+
+Models (T4, FP16 weights; configs checked on Hugging Face, cache sizes computed from the formula, so they are predictions until measured):
+
+| Role | Model | Config | KV per token (FP16) | Cache at 32K |
+|---|---|---|---|---|
+| MHA | Qwen1.5-0.5B | 24 layers, 16 / 16 heads, head_dim 64 | 96 KiB | 3 GiB |
+| GQA | Qwen2.5-0.5B | 24 layers, 14 / 2 heads, head_dim 64 | 12 KiB | 0.375 GiB |
+| Needle model | Qwen3-4B | 36 layers, 32 / 8 heads, head_dim 128 | 144 KiB | 4.5 GiB |
+| Optional second family | Llama-3.2-3B (gated on Hugging Face) | 28 layers, 24 / 8 heads, head_dim 128 | 112 KiB | 3.5 GiB |
+
+Why a same-family pair: the two 0.5B models share depth, head_dim, tokenizer and context length, so the cache difference comes almost entirely from kv_heads (16 vs 2). We compare cache size and memory stress only, not quality. The report should say this is a deliberate control, and that the formula itself does not depend on the family.
+
+Steps. The Owner column is empty on purpose: write your name to claim a row. "Role" refers to the rough Split above. Steps 1 and 2 do not depend on steps 3 to 5 (they only share the model choice), so the two groups can run in parallel.
+
+| Step | Task | Output | Role | Depends on | Owner |
+|---|---|---|---|---|---|
+| 1 | `cache_size.py` on the MHA and GQA models: prefill at increasing lengths, compare the allocated-memory increase (cache alive) with the formula; run one warm-up forward first. Stress test: raise length and batch until OOM | Formula vs measured table, OOM points | Exp 1 and 2 | Model pair agreed | |
+| 2 | `plot_curves.py`: Fig. 1 cache GB vs length, measured points on formula lines, both models, mark where cache exceeds weights. Fig. 2 FP16 vs FP8 size (formula). Optional dashed line: the GQA model with MHA heads, labeled hypothetical | Two figures | Exp 1 and 2 | Step 1 (measured points) | |
+| 3 | `needle.py`, FP16 baseline on Qwen3-4B: lengths 2K to 16K, 5 depths, 5 to 10 needle and haystack variants per cell; keep logits for the last position only. Do not continue until the short-context baseline is close to 100% | FP16 heatmap, trial counts | Exp 3 and slides | Needle model agreed | |
+| 4 | `fp8_cache.py`: simulated FP8 e4m3 (T4 has no FP8 hardware: store as float8_e4m3fn, dequantize to FP16), same needle set; report the paired difference per cell. If nothing degrades, add a lower-precision variant | FP8 heatmap | Exp 3 and slides | Step 3 | |
+| 5 | Eviction baseline: attention sink plus recent window (about 2K), same needle set. Expected: abrupt failure once the needle falls outside the window | Eviction heatmap | Exp 3 and slides | Step 3 | |
+| 6 (stretch) | One 32K point on Qwen3-4B (may not fit on a T4); same needle test on Llama-3.2-3B as a cross-family check | Extra point or a limitation line | Either | Step 4 | |
+
+Limits to state in the report: needle lengths stop at 16K because of T4 memory; FP8 is simulated on the T4 (K and V are stored as float8 but attention runs in FP16), so we report accuracy and stored cache size, not FP8 speed. Check early that float8 storage and casting work on the T4.
