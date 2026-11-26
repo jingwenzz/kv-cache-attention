@@ -1,0 +1,6 @@
+{"tag": "fp8_e4m3", "length": 2048, "depth": 0, "variant": 0, "n_tokens": 2035, "actual_depth": 0.0, "expected": "532191", "output": "532191", "correct": true, "seconds": 0.66, "peak_gib": 1.04, "status": "ok"}
+{"tag": "fp8_e4m3", "length": 2048, "depth": 0, "variant": 1, "n_tokens": 2049, "actual_depth": 0.0, "expected": "940005", "output": "940005", "correct": true, "seconds": 0.33, "peak_gib": 1.04, "status": "ok"}
+{"tag": "fp8_e4m3", "length": 2048, "depth": 50, "variant": 0, "n_tokens": 2035, "actual_depth": 56.2, "expected": "532191", "output": "532191", "correct": true, "seconds": 0.29, "peak_gib": 1.04, "status": "ok"}
+{"tag": "fp8_e4m3", "length": 2048, "depth": 50, "variant": 1, "n_tokens": 2049, "actual_depth": 44.1, "expected": "940005", "output": "940005", "correct": true, "seconds": 0.29, "peak_gib": 1.04, "status": "ok"}
+{"tag": "fp8_e4m3", "length": 2048, "depth": 100, "variant": 0, "n_tokens": 2035, "actual_depth": 100.0, "expected": "532191", "output": "532191", "correct": true, "seconds": 0.3, "peak_gib": 1.04, "status": "ok"}
+{"tag": "fp8_e4m3", "length": 2048, "depth": 100, "variant": 1, "n_tokens": 2049, "actual_depth": 100.0, "expected": "940005", "output": "940005", "correct": true, "seconds": 0.29, "peak_gib": 1.04, "status": "ok"}
